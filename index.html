@@ -1144,7 +1144,8 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
   const cfg = () => { try{ const c = JSON.parse(ls.get('sr:ai') || 'null') || {}; return {provider: ['openai', 'gemini', 'openrouter', 'groq'].includes(c.provider) ? c.provider : 'anthropic', keys: Object.assign({}, DEF.keys, c.keys), models: Object.assign({}, DEF.models, c.models)}; }catch(e){ return JSON.parse(JSON.stringify(DEF)); } };
   const PROV = {anthropic:'Claude', openai:'ChatGPT', gemini:'Gemini', openrouter:'OpenRouter', groq:'Groq'};
   const HINT = {openrouter:'<b>OpenRouter مجاني:</b> افتح <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a> وسجّل ثم «Create Key» وانسخه هنا. النموذج <code>openrouter/free</code> يختار لك نموذجًا مجانيًّا متاحًا تلقائيًّا. لا يحتاج بطاقة، وحدّه اليومي صغير. قد تُسجَّل الأسئلة في الطبقة المجانية، فلا ترسل نصًّا خاصًّا.', groq:'<b>Groq مجاني:</b> افتح <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a> وسجّل ثم «Create API Key» وانسخه هنا. سريع جدًّا ولا يحتاج بطاقة، وحدّه اليومي مجاني. النموذج الافتراضي <code>llama-3.3-70b-versatile</code>، فإن رُفض الاسم فاختر غيره من console.groq.com/docs/models.', gemini:'<b>Gemini مجاني:</b> افتح <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> وسجّل بحساب Google ثم «Create API key» وانسخه هنا. لا يحتاج بطاقة، وله حدٌّ يومي مجاني. قد تستعمل Google ما يُرسل في الطبقة المجانية لتحسين خدماتها، فلا ترسل نصًّا خاصًّا.', anthropic:'المفتاح من console.anthropic.com ← API Keys (يحتاج رصيدًا).', openai:'المفتاح من platform.openai.com ← API keys (يحتاج رصيدًا).'};
-  const FULL = 90000, PART = 60000;
+  const LIM = {groq:[11000, 9000], openrouter:[45000, 30000]};
+  const lim = () => LIM[cfg().provider] || [90000, 60000];
   let hist = [], bookId = null, ctrl = null, sel = '';
   const normCache = new Map();
 
@@ -1205,6 +1206,7 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
   /* اختيار المقاطع: الكتاب كاملًا إن كان قصيرًا، وإلا أقرب الصفحات للسؤال */
   function pick(book, q){
     const idx = book.idx || []; const total = idx.reduce((a, x) => a + x.t.length, 0);
+    const FULL = lim()[0], PART = lim()[1];
     if(total <= FULL) return {pages: idx, full: true};
     let nt = normCache.get(book.id); if(!nt){ nt = idx.map(x => AN(x.t)); normCache.clear(); normCache.set(book.id, nt); }
     const terms = [...new Set(AN(normSp(q)).split(/[^\p{L}\p{N}]+/u).map(w => w.replace(/^(وال|بال|فال|كال|لل|ال)/, '')).filter(w => w.length > 1))];
@@ -1276,7 +1278,7 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
       }
     }
   }
-  const errMsg = e => e.name === 'AbortError' ? 'أُوقف الطلب.' : !navigator.onLine ? 'لا يوجد اتصال بالإنترنت؛ هذه الميزة تحتاج اتصالًا.' : e.status === 401 || e.status === 403 || (e.status === 400 && /api key/i.test(e.message || '')) ? 'المفتاح غير صالح أو لا يملك الصلاحية. راجعه من ⚙.' : e.status === 503 ? 'خوادم المزوّد مزدحمة الآن. أعد المحاولة بعد قليل، أو غيّر النموذج من ⚙ (مثل gemini-flash-lite-latest).' : e.status === 429 ? 'تجاوزتَ الحد المسموح أو نفد الرصيد لدى المزوّد.' : e.status === 404 ? 'اسم النموذج غير صحيح. عدّله من ⚙.' : e instanceof TypeError ? 'تعذّر الاتصال بالمزوّد (شبكة أو حجب).' : (e.message || 'حدث خطأ.');
+  const errMsg = e => /tokens per minute|request too large|rate_limit_exceeded|context.length/i.test(e.message || '') ? 'السؤال مع مقاطع الكتاب أكبر مما يسمح به حدّ هذا المزوّد المجاني. جرّب سؤالًا أقصر أو أدقّ، أو انتظر دقيقة، أو انتقل إلى Gemini من ⚙ فحدّه أوسع.' : e.name === 'AbortError' ? 'أُوقف الطلب.' : !navigator.onLine ? 'لا يوجد اتصال بالإنترنت؛ هذه الميزة تحتاج اتصالًا.' : e.status === 401 || e.status === 403 || (e.status === 400 && /api key/i.test(e.message || '')) ? 'المفتاح غير صالح أو لا يملك الصلاحية. راجعه من ⚙.' : e.status === 503 ? 'خوادم المزوّد مزدحمة الآن. أعد المحاولة بعد قليل، أو غيّر النموذج من ⚙ (مثل gemini-flash-lite-latest).' : e.status === 429 ? 'تجاوزتَ الحد المسموح أو نفد الرصيد لدى المزوّد.' : e.status === 404 ? 'اسم النموذج غير صحيح. عدّله من ⚙.' : e instanceof TypeError ? 'تعذّر الاتصال بالمزوّد (شبكة أو حجب).' : (e.message || 'حدث خطأ.');
 
   pan.querySelector('form').addEventListener('submit', async e => {
     e.preventDefault(); const q = ta.value.trim(); if(!q || ctrl) return;
