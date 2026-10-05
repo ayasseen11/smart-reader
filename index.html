@@ -1137,6 +1137,7 @@ function closeBook(fromPop){
   load();
 }
 $('#libBtn').addEventListener('click', () => closeBook());
+addEventListener('hashchange', () => { const m = location.hash.match(/^#book=([^&]+)(?:&p=(d+))?/); if(!m) return; const id = decodeURIComponent(m[1]); if(BOOKS.some(b => b.id === id)){ history.replaceState({book:id}, '', location.pathname + location.search); openBook(id, m[2] ? {p: m[2]} : undefined); } });
 addEventListener('popstate', e => { if(CUR && !(e.state && e.state.book)) closeBook(true); else if(e.state && e.state.book && !CUR) openBook(e.state.book); });
 addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.preventDefault(); closeBook(); } });
 
@@ -1178,7 +1179,7 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
     if(!brOn() || !CUR) return;
     const book = BOOKS.find(b => b.id === CUR); if(!book || !book.idx) return;
     try{
-      if(brId !== CUR){ const r = await fetch(BR + '/book', {method:'POST', body: JSON.stringify({id: CUR, title: book.title, author: book.author || '', pages: book.idx})}); if(!r.ok) throw 0; brId = CUR; }
+      if(brId !== CUR){ const r = await fetch(BR + '/book', {method:'POST', body: JSON.stringify({id: CUR, title: book.title, author: book.author || '', base: location.origin + location.pathname, pages: book.idx})}); if(!r.ok) throw 0; brId = CUR; }
       const L = liveSel(), cp = curPage();
       const r2 = await fetch(BR + '/state', {method:'POST', body: JSON.stringify({id: CUR, selection: L.t.slice(0, 6000), selPage: L.pg, curPage: cp})}); if(!r2.ok) throw 0;
       brOk = true;
@@ -2279,10 +2280,10 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){ window
 /* ---------- البدء ---------- */
 (async function(){
   try{ await load(); }catch(err){ $('#shelf').innerHTML = '<div class="empty">هذا المتصفح يمنع التخزين المحلي (ربما نافذة خاصة)، فلن تُحفظ الكتب.</div>'; return; }
-  const h = location.hash.match(/^#book=(.+)$/); const last = h ? decodeURIComponent(h[1]) : null;
+  const h = location.hash.match(/^#book=([^&]+)(?:&p=(d+))?/); const last = h ? decodeURIComponent(h[1]) : null, lastP = h && h[2] ? {p: h[2]} : undefined;
   const opening = !!(last && BOOKS.some(b => b.id === last)), first = !ls.get('sr:tour:shelf') && !opening;
   await ensureGuide(first || (!BOOKS.some(b => b.id === 'smart-reader-guide') && !ls.get('sr:welcomed')));
-  if(opening){ history.replaceState({}, '', location.pathname + location.search); openBook(last); }
+  if(opening){ history.replaceState({}, '', location.pathname + location.search); openBook(last, lastP); }
   else if(first) setTimeout(() => shelfTour(welcome), 700);
   if(!ls.get('sr:firstUse')) ls.set('sr:firstUse', String(Date.now()));
   renderSafety(); bakAutoRun(false); setInterval(() => bakAutoRun(false), 30 * 60000); document.addEventListener('visibilitychange', () => { if(document.hidden) bakAutoRun(false); });
