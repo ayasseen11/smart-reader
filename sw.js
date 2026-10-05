@@ -1,4 +1,4 @@
-const CACHE = 'smart-reader-v21';
+const CACHE = 'smart-reader-v22';
 const FILES = ['./', 'index.html', 'fonts.css', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png',
   'fonts/f1.ttf','fonts/f2.ttf','fonts/f3.ttf','fonts/f4.ttf','fonts/f5.ttf','fonts/f6.ttf','fonts/f7.ttf','fonts/f8.ttf','lib/pdf.min.js','lib/pdf.worker.min.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
