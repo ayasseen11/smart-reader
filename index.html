@@ -1102,9 +1102,91 @@ async function bookHTML(b){
 }
 const reader = $('#reader');
 let CUR = null;
-async function openBook(id, goto){
+/* روابط عميقة في العنوان — الصيغة نفسها للقراءة والكتابة:
+   #book=<id>
+   #book=<id>&p=<page>
+   #book=<id>&p=<page>&v=<volume>
+   <id> = encodeURIComponent(bookId). p و v أعداد صحيحة كما في .page[data-p] و data-v
+   (وعنصر الصفحة id="p-<page>" أو id="p-<volume>-<page>").
+   #book=<id> وحده يبقى يعمل كما كان. أثناء القراءة يُحدَّث الهاش بـ history.replaceState
+   عند تغيّر الصفحة، فيبقى الرجوع لدخول الكتاب وخروجه.
+   مثال: #book=smart-reader-guide&p=7
+        #book=<id>&p=7&v=2 */
+function parseBookHash(hash){
+  const m = /^#book=([^&]*)(.*)$/.exec(hash || '');
+  if(!m) return null;
+  let id = m[1]; try{ id = decodeURIComponent(id); }catch(_){}
+  if(!id) return null;
+  const pm = /(?:^|&)p=(\d+)/.exec(m[2]), vm = /(?:^|&)v=(\d+)/.exec(m[2]);
+  return {id, p: pm ? +pm[1] : null, v: vm ? +vm[1] : null};
+}
+function bookHash(id, page){
+  let h = '#book=' + encodeURIComponent(id);
+  if(page && page.p != null){ h += '&p=' + page.p; if(page.v != null) h += '&v=' + page.v; }
+  return h;
+}
+function hashState(id, page){
+  const s = {book:id};
+  if(page && page.p != null){ s.p = page.p; if(page.v != null) s.v = page.v; }
+  return s;
+}
+function sameHashPage(a, b){
+  const ap = a && a.p != null ? a.p : null, av = a && a.v != null ? a.v : null;
+  const bp = b && b.p != null ? b.p : null, bv = b && b.v != null ? b.v : null;
+  return ap === bp && av === bv;
+}
+let hashLock = null;
+function armHashLock(page){ hashLock = page && page.p != null ? {p:page.p, v:page.v == null ? null : page.v, until:Date.now() + 4000} : null; }
+function placeBookHash(id, page, keepHist){
+  armHashLock(page);
+  if(keepHist) return;
+  if(!CUR) history.pushState(hashState(id, page), '', bookHash(id, page));
+  else history.replaceState(hashState(id, page), '', bookHash(id, page));
+}
+function writeBookHash(id, page){
+  const cur = parseBookHash(location.hash);
+  if(cur && cur.id === id && sameHashPage(cur, page)) return;
+  history.replaceState(hashState(id, page), '', bookHash(id, page));
+}
+function followReaderPage(page){
+  if(!CUR || !page || page.p == null) return;
+  if(hashLock && Date.now() < hashLock.until){
+    if(page.p === hashLock.p && (hashLock.v == null || page.v === hashLock.v)) hashLock = null;
+    else return;
+  } else hashLock = null;
+  writeBookHash(CUR, page);
+}
+function gotoPage(goto){
+  if(!goto || goto.p == null || goto.p === '') return null;
+  const s = String(goto.p), m = /^(\d+)-(\d+)$/.exec(s);
+  if(m) return {v:+m[1], p:+m[2]};
+  return /^\d+$/.test(s) ? {p:+s, v:null} : null;
+}
+function htmlCurPage(doc){
+  if(!doc) return null;
+  for(const pe of doc.querySelectorAll('.page[data-p]')){
+    if(pe.getBoundingClientRect().bottom > 90) return {p:+pe.dataset.p, v:pe.dataset.v ? +pe.dataset.v : null};
+  }
+  return null;
+}
+function linkGoto(link){ return link && link.p != null ? {p: (link.v != null ? link.v + '-' : '') + link.p} : undefined; }
+function bindPageHash(fr){
+  let t = null;
+  const sync = () => { let page = null; try{ page = htmlCurPage(fr.contentDocument); }catch(_){ return; } if(page) followReaderPage(page); };
+  try{ fr.contentWindow.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(sync, 200); }, {passive:true}); }catch(_){}
+  setTimeout(sync, 600); setTimeout(sync, 2000); setTimeout(sync, 4200);
+}
+function jumpReader(goto){
+  const page = gotoPage(goto); if(!page) return;
+  armHashLock(page);
+  if(reader.dataset.kind === 'pdf' && reader._go){ reader._go(page.p); return; }
+  const fr = reader.querySelector('iframe');
+  if(fr && fr.contentWindow) try{ fr.contentWindow.postMessage(Object.assign({t:'study-goto'}, goto), '*'); }catch(_){}
+}
+async function openBook(id, goto, fromPop){
   const b = BOOKS.find(x => x.id === id) || await get(id); if(!b) return toast('لم يُعثر على الكتاب.');
-  if(b.type === 'pdf') return openPdf(b);
+  const page = gotoPage(goto);
+  if(b.type === 'pdf') return openPdf(b, page, fromPop);
   busy(true);
   try{
     const html = await bookHTML(b);
@@ -1114,20 +1196,22 @@ async function openBook(id, goto){
     fr.setAttribute('allowfullscreen', '');
     fr.addEventListener('load', () => { busy(false); try{ fr.contentWindow.focus(); }catch(_){}
       try{ const d = fr.contentDocument, s = d.createElement('style'); s.textContent = '/*SR-OFFSET*/#study,#turath{top:calc(max(10px,env(safe-area-inset-top)) + 82px)!important}@media (max-width:799px){#split{box-sizing:border-box!important;padding-top:calc(max(10px,env(safe-area-inset-top)) + 82px)!important}}@media (min-width:800px){html:not(.split-r) #split{box-sizing:border-box!important;padding-top:calc(max(10px,env(safe-area-inset-top)) + 82px)!important}}#saved,#focusExit{top:calc(max(10px,env(safe-area-inset-top)) + 82px)!important}#linkPill{top:calc(max(10px,env(safe-area-inset-top)) + 118px)!important}#wdock{top:calc(max(10px,env(safe-area-inset-top)) + 146px)!important}'; d.head.appendChild(s); }catch(_){}
-      if(goto) setTimeout(() => fr.contentWindow.postMessage(Object.assign({t:'study-goto'}, goto), '*'), 350);
+      if(goto){ const send = () => { try{ fr.contentWindow.postMessage(Object.assign({t:'study-goto'}, goto), '*'); }catch(_){} }; setTimeout(send, 350); setTimeout(() => { const want = gotoPage(goto); let cur = null; try{ cur = htmlCurPage(fr.contentDocument); }catch(_){} if(want && !(cur && cur.p === want.p && (want.v == null || cur.v === want.v))) send(); }, 1800); }
+      bindPageHash(fr);
       if(!ls.get('sr:tour:book')) setTimeout(() => bookTour(fr), 1000);
       try{ fr.contentWindow.addEventListener('keydown', ev => { if(ev.altKey && ev.code === 'KeyL'){ ev.preventDefault(); closeBook(); } else if(ev.altKey && ev.code === 'KeyK' && window.__srAsk){ ev.preventDefault(); window.__srAsk.toggle(); } }); }catch(_){}
     }, {once:true});
     fr.srcdoc = html; reader.appendChild(fr);
     reader.classList.add('on'); reader.setAttribute('aria-hidden', 'false'); document.body.classList.add('reading');
     document.title = b.title + ' — القارئ الذكي';
-    if(!CUR) history.pushState({book:id}, '', '#book=' + encodeURIComponent(id)); else history.replaceState({book:id}, '', '#book=' + encodeURIComponent(id));
+    placeBookHash(id, page, fromPop);
     CUR = id; ls.set('sr:last', id);
     setTimeout(() => busy(false), 6000);
   }catch(err){ busy(false); toast('تعذّر فتح الكتاب: ' + err.message, 5000); }
 }
 function closeBook(fromPop){
   if(!CUR) return;
+  hashLock = null;
   try{ const w = reader.querySelector('iframe').contentWindow; w.dispatchEvent(new Event('pagehide')); }catch(_){}
   reader.classList.remove('on'); reader.setAttribute('aria-hidden', 'true'); document.body.classList.remove('reading');
   if(reader._cleanup){ try{ reader._cleanup(); }catch(_){} reader._cleanup = null; }
@@ -1137,7 +1221,16 @@ function closeBook(fromPop){
   load();
 }
 $('#libBtn').addEventListener('click', () => closeBook());
-addEventListener('popstate', e => { if(CUR && !(e.state && e.state.book)) closeBook(true); else if(e.state && e.state.book && !CUR) openBook(e.state.book); });
+addEventListener('popstate', e => {
+  const st = e.state;
+  if(CUR && !(st && st.book)) closeBook(true);
+  else if(st && st.book && !CUR) openBook(st.book, st.p != null ? {p: (st.v != null ? st.v + '-' : '') + st.p} : undefined, true);
+});
+addEventListener('hashchange', () => {
+  const link = parseBookHash(location.hash); if(!link || !BOOKS.some(b => b.id === link.id)) return;
+  if(CUR === link.id){ if(link.p != null) jumpReader(linkGoto(link)); return; }
+  openBook(link.id, linkGoto(link), true);
+});
 addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.preventDefault(); closeBook(); } });
 
 /* ---------- اسأل عن الكتاب (Claude / ChatGPT بمفتاح المستخدم) ---------- */
@@ -1389,9 +1482,9 @@ function relinkPdf(b){
   inp.onchange = async () => { const f = inp.files[0]; if(!f) return; busy(true); try{ await kvPut('pdf:' + b.id, await f.arrayBuffer()); busy(false); openBook(b.id); }catch(e){ busy(false); toast('تعذّر الحفظ: ' + e.message, 5000); } };
   inp.click();
 }
-function clearReader(){ if(reader._cleanup){ try{ reader._cleanup(); }catch(_){} reader._cleanup = null; } reader.dataset.kind = ''; reader.innerHTML = ''; }
+function clearReader(){ if(reader._cleanup){ try{ reader._cleanup(); }catch(_){} reader._cleanup = null; } reader._go = null; reader.dataset.kind = ''; reader.innerHTML = ''; }
 
-async function openPdf(b){
+async function openPdf(b, page, fromPop){
   busy(true);
   try{
     const [lib, buf] = await Promise.all([loadPdfJs(), kvGet('pdf:' + b.id)]);
@@ -1399,12 +1492,12 @@ async function openPdf(b){
     const doc = await lib.getDocument({data: buf.slice(0)}).promise;
     b.ts = Date.now(); put(b);
     clearReader(); reader.dataset.kind = 'pdf';
-    const v = pdfView(b, doc); reader.appendChild(v.el); reader._cleanup = v.destroy;
+    const v = pdfView(b, doc); reader.appendChild(v.el); reader._cleanup = v.destroy; reader._go = n => v.go(n);
     reader.classList.add('on'); reader.setAttribute('aria-hidden', 'false'); document.body.classList.add('reading');
     document.title = b.title + ' — القارئ الذكي';
-    if(!CUR) history.pushState({book:b.id}, '', '#book=' + encodeURIComponent(b.id)); else history.replaceState({book:b.id}, '', '#book=' + encodeURIComponent(b.id));
+    placeBookHash(b.id, page, fromPop);
     CUR = b.id; ls.set('sr:last', b.id);
-    busy(false); v.start(); if(!ls.get('sr:tour:pdf')) setTimeout(pdfTour, 1000);
+    busy(false); v.start(page && page.p != null ? page.p : null); if(!ls.get('sr:tour:pdf')) setTimeout(pdfTour, 1000);
   }catch(err){ busy(false); toast('تعذّر فتح الملف: ' + (err.message || err), 6000); console.error(err); }
 }
 
@@ -1429,7 +1522,7 @@ function pdfView(b, doc){
   const syncBm = () => { const on = bms().includes(cur + 1); const bt = $('[data-a=bm]', el); bt.textContent = on ? '★' : '☆'; bt.classList.toggle('on', on); };
 
   function savePos(){ clearTimeout(posT); posT = setTimeout(() => { const st = studyOf(id) || {}; st.last = {p: cur + 1}; st.savedAt = Date.now(); ls.set('study:' + id, JSON.stringify(st)); }, 600); }
-  function setCur(i){ if(i === cur && inp.value) return; cur = i; if(document.activeElement !== inp) inp.value = i + 1; syncBm(); savePos(); }
+  function setCur(i){ if(i === cur && inp.value) return; cur = i; if(document.activeElement !== inp) inp.value = i + 1; syncBm(); savePos(); followReaderPage({p:i + 1, v:null}); }
   function whichPage(){
     const top = sc.getBoundingClientRect().top + sc.clientHeight * .3; let best = -1;
     [...visible].sort((a, c) => a - c).forEach(i => { if(pages[i].getBoundingClientRect().top <= top) best = i; });
@@ -1552,10 +1645,11 @@ function pdfView(b, doc){
   const stIv = setInterval(() => { if(document.visibilityState === 'visible' && Date.now() - stAct < 90000) stAcc += 5; if(stAcc >= 60) stFlush(); }, 5000);
   return {
     el,
-    async start(){
+    go(p){ goPage(Math.max(0, Math.min(n - 1, (p || 1) - 1)), false); },
+    async start(at){
       try{ const p1 = await doc.getPage(1), v = p1.getViewport({scale:1}); ratio = v.height / v.width; p1.cleanup(); }catch(_){}
       layout(false);
-      const st = studyOf(id), p = st && st.last && +st.last.p || 1; goPage(Math.max(0, Math.min(n - 1, p - 1)), false); inp.value = cur + 1; syncBm(); sc.focus();
+      const st = studyOf(id), p = at != null ? at : ((st && st.last && +st.last.p) || 1); goPage(Math.max(0, Math.min(n - 1, p - 1)), false); inp.value = cur + 1; syncBm(); sc.focus();
     },
     destroy(){ dead = true; token++; io.disconnect(); clearInterval(stIv); stFlush(); removeEventListener('resize', onResize); removeEventListener('keydown', onKey); clearTimeout(posT); const stt = studyOf(id) || {}; stt.last = {p: cur + 1}; stt.savedAt = Date.now(); ls.set('study:' + id, JSON.stringify(stt)); try{ doc.destroy(); }catch(_){} }
   };
@@ -2279,10 +2373,11 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){ window
 /* ---------- البدء ---------- */
 (async function(){
   try{ await load(); }catch(err){ $('#shelf').innerHTML = '<div class="empty">هذا المتصفح يمنع التخزين المحلي (ربما نافذة خاصة)، فلن تُحفظ الكتب.</div>'; return; }
-  const h = location.hash.match(/^#book=(.+)$/); const last = h ? decodeURIComponent(h[1]) : null;
-  const opening = !!(last && BOOKS.some(b => b.id === last)), first = !ls.get('sr:tour:shelf') && !opening;
+  const link = parseBookHash(location.hash); const last = link && link.id;
+  let opening = !!(last && BOOKS.some(b => b.id === last)), first = !ls.get('sr:tour:shelf') && !opening;
   await ensureGuide(first || (!BOOKS.some(b => b.id === 'smart-reader-guide') && !ls.get('sr:welcomed')));
-  if(opening){ history.replaceState({}, '', location.pathname + location.search); openBook(last); }
+  if(!opening && last && BOOKS.some(b => b.id === last)) opening = true;
+  if(opening){ history.replaceState({}, '', location.pathname + location.search); openBook(last, linkGoto(link)); }
   else if(first) setTimeout(() => shelfTour(welcome), 700);
   if(!ls.get('sr:firstUse')) ls.set('sr:firstUse', String(Date.now()));
   renderSafety(); bakAutoRun(false); setInterval(() => bakAutoRun(false), 30 * 60000); document.addEventListener('visibilitychange', () => { if(document.hidden) bakAutoRun(false); });
