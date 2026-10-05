@@ -1140,7 +1140,7 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
 
 /* ---------- اسأل عن الكتاب (Claude / ChatGPT بمفتاح المستخدم) ---------- */
 (function(){
-  const DEF = {provider:'anthropic', keys:{anthropic:'', openai:'', gemini:''}, models:{anthropic:'claude-sonnet-5-5', openai:'gpt-4o', gemini:'gemini-2.5-flash'}};
+  const DEF = {provider:'anthropic', keys:{anthropic:'', openai:'', gemini:''}, models:{anthropic:'claude-sonnet-5-5', openai:'gpt-4o', gemini:'gemini-flash-latest'}};
   const cfg = () => { try{ const c = JSON.parse(ls.get('sr:ai') || 'null') || {}; return {provider: ['openai', 'gemini'].includes(c.provider) ? c.provider : 'anthropic', keys: Object.assign({}, DEF.keys, c.keys), models: Object.assign({}, DEF.models, c.models)}; }catch(e){ return JSON.parse(JSON.stringify(DEF)); } };
   const PROV = {anthropic:'Claude', openai:'ChatGPT', gemini:'Gemini'};
   const HINT = {gemini:'<b>Gemini مجاني:</b> افتح <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> وسجّل بحساب Google ثم «Create API key» وانسخه هنا. لا يحتاج بطاقة، وله حدٌّ يومي مجاني. قد تستعمل Google ما يُرسل في الطبقة المجانية لتحسين خدماتها، فلا ترسل نصًّا خاصًّا.', anthropic:'المفتاح من console.anthropic.com ← API Keys (يحتاج رصيدًا).', openai:'المفتاح من platform.openai.com ← API keys (يحتاج رصيدًا).'};
@@ -1224,8 +1224,21 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
       res = await fetch('https://api.anthropic.com/v1/messages', {method:'POST', signal, headers:{'content-type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true'},
         body: JSON.stringify({model:c.models.anthropic, max_tokens:2048, stream:true, system:[Object.assign({type:'text', text:system}, cache ? {cache_control:{type:'ephemeral'}} : {})], messages})});
     }else if(c.provider === 'gemini'){
-      res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(c.models.gemini) + ':streamGenerateContent?alt=sse', {method:'POST', signal, headers:{'content-type':'application/json', 'x-goog-api-key':key},
+      const gcall = () => fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(c.models.gemini) + ':streamGenerateContent?alt=sse', {method:'POST', signal, headers:{'content-type':'application/json', 'x-goog-api-key':key},
         body: JSON.stringify({systemInstruction:{parts:[{text:system}]}, contents: messages.map(m => ({role: m.role === 'assistant' ? 'model' : 'user', parts:[{text: typeof m.content === 'string' ? m.content : String(m.content)}]})), generationConfig:{maxOutputTokens:4096}})});
+      res = await gcall();
+      if(res.status === 404){
+        /* الاسم قديم أو غير متاح: اختر أحدث نموذج Flash يدعم التوليد من قائمة حسابك ثم أعد المحاولة */
+        try{
+          const lr = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', {signal, headers:{'x-goog-api-key':key}});
+          if(lr.ok){
+            const L = ((await lr.json()).models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && /flash/i.test(m.name) && !/lite|image|tts|live|audio|thinking|exp|preview|vision|embed/i.test(m.name)).map(m => m.name.replace(/^models\//, ''));
+            const ver = n => { const x = n.match(/(\d+(?:\.\d+)?)/); return x ? parseFloat(x[1]) : 0; };
+            L.sort((a, b) => ver(b) - ver(a));
+            if(L.length){ c.models.gemini = L[0]; try{ const s = cfg(); s.models.gemini = L[0]; ls.set('sr:ai', JSON.stringify(s)); }catch(_){} res = await gcall(); }
+          }
+        }catch(_){}
+      }
     }else{
       res = await fetch('https://api.openai.com/v1/chat/completions', {method:'POST', signal, headers:{'content-type':'application/json', 'authorization':'Bearer ' + key},
         body: JSON.stringify({model:c.models.openai, stream:true, max_completion_tokens:2048, messages:[{role:'system', content:system}].concat(messages)})});
