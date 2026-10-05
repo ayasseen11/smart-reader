@@ -1242,8 +1242,25 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
       }
     }else{
       const OAI = {openai:'https://api.openai.com/v1/chat/completions', openrouter:'https://openrouter.ai/api/v1/chat/completions', groq:'https://api.groq.com/openai/v1/chat/completions'};
-      res = await fetch(OAI[c.provider], {method:'POST', signal, headers:{'content-type':'application/json', 'authorization':'Bearer ' + key},
+      const ocall = () => fetch(OAI[c.provider], {method:'POST', signal, headers:{'content-type':'application/json', 'authorization':'Bearer ' + key},
         body: JSON.stringify(Object.assign({model:c.models[c.provider], stream:true, messages:[{role:'system', content:system}].concat(messages)}, c.provider === 'openai' ? {max_completion_tokens:2048} : {max_tokens:2048}))});
+      res = await ocall();
+      if(c.provider === 'groq' && (res.status === 404 || res.status === 400)){
+        /* النموذج أُوقف أو غُيّر اسمه: اختر أنسب نموذج محادثة من قائمة حسابك وأعد المحاولة */
+        try{
+          const bad = res.status === 404 || /model/i.test(await res.clone().text());
+          if(bad){
+            const lr = await fetch('https://api.groq.com/openai/v1/models', {signal, headers:{'authorization':'Bearer ' + key}});
+            if(lr.ok){
+              const L = ((await lr.json()).data || []).filter(m => m.active !== false && !/whisper|guard|safeguard|tts|orpheus|playai|embed|distil/i.test(m.id)).map(m => m.id);
+              const score = n => (/70b|120b|maverick|large|versatile/i.test(n) ? 4 : 0) + (/llama/i.test(n) ? 2 : 0) + (/gpt-oss|qwen/i.test(n) ? 1 : 0) - (/8b|instant|small|scout/i.test(n) ? 3 : 0);
+              L.sort((a, b) => score(b) - score(a));
+              if(L.length && L[0] !== c.models.groq){ c.models.groq = L[0]; try{ const s = cfg(); s.models.groq = L[0]; ls.set('sr:ai', JSON.stringify(s)); }catch(_){} res = await ocall(); }
+            }
+          }
+        }catch(_){}
+      }
+
     }
     if(!res.ok){ let m = ''; try{ const j = await res.json(); m = j.error && (j.error.message || j.error.type) || ''; }catch(_){} const er = new Error(m || ('HTTP ' + res.status)); er.status = res.status; throw er; }
     const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
