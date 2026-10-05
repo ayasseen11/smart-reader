@@ -101,6 +101,7 @@ body.reading{overflow:hidden}
 #aiBtn{position:fixed;z-index:103;top:calc(max(10px,env(safe-area-inset-top)) + 40px);left:10px;display:none;align-items:center;gap:6px;border:1px solid var(--line);background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(8px);border-radius:999px;padding:6px 12px;font-weight:700;font-size:13px;box-shadow:var(--sh);opacity:.55;transition:opacity .2s}
 #aiBtn:hover,#aiBtn:focus-visible{opacity:1}
 #reader.on ~ #aiBtn{display:inline-flex}
+#aiPanel .aihint{font-size:12px;line-height:1.7;margin:4px 0}#aiPanel .aihint a{color:inherit;text-decoration:underline}
 #aiPanel{position:fixed;z-index:102;top:calc(max(10px,env(safe-area-inset-top)) + 82px);bottom:0;left:0;width:min(440px,100vw);background:var(--card);color:var(--ink);border-inline-end:1px solid var(--line);box-shadow:var(--sh);display:none;flex-direction:column}
 #aiPanel.on{display:flex}
 #reader:not(.on) ~ #aiPanel{display:none}
@@ -1139,9 +1140,10 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
 
 /* ---------- اسأل عن الكتاب (Claude / ChatGPT بمفتاح المستخدم) ---------- */
 (function(){
-  const DEF = {provider:'anthropic', keys:{anthropic:'', openai:''}, models:{anthropic:'claude-sonnet-5-5', openai:'gpt-4o'}};
-  const cfg = () => { try{ const c = JSON.parse(ls.get('sr:ai') || 'null') || {}; return {provider: c.provider === 'openai' ? 'openai' : 'anthropic', keys: Object.assign({}, DEF.keys, c.keys), models: Object.assign({}, DEF.models, c.models)}; }catch(e){ return JSON.parse(JSON.stringify(DEF)); } };
-  const PROV = {anthropic:'Claude', openai:'ChatGPT'};
+  const DEF = {provider:'anthropic', keys:{anthropic:'', openai:'', gemini:''}, models:{anthropic:'claude-sonnet-5-5', openai:'gpt-4o', gemini:'gemini-2.5-flash'}};
+  const cfg = () => { try{ const c = JSON.parse(ls.get('sr:ai') || 'null') || {}; return {provider: ['openai', 'gemini'].includes(c.provider) ? c.provider : 'anthropic', keys: Object.assign({}, DEF.keys, c.keys), models: Object.assign({}, DEF.models, c.models)}; }catch(e){ return JSON.parse(JSON.stringify(DEF)); } };
+  const PROV = {anthropic:'Claude', openai:'ChatGPT', gemini:'Gemini'};
+  const HINT = {gemini:'<b>Gemini مجاني:</b> افتح <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> وسجّل بحساب Google ثم «Create API key» وانسخه هنا. لا يحتاج بطاقة، وله حدٌّ يومي مجاني. قد تستعمل Google ما يُرسل في الطبقة المجانية لتحسين خدماتها، فلا ترسل نصًّا خاصًّا.', anthropic:'المفتاح من console.anthropic.com ← API Keys (يحتاج رصيدًا).', openai:'المفتاح من platform.openai.com ← API keys (يحتاج رصيدًا).'};
   const FULL = 90000, PART = 60000;
   let hist = [], bookId = null, ctrl = null, sel = '';
   const normCache = new Map();
@@ -1150,7 +1152,8 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
   const pan = document.createElement('aside'); pan.id = 'aiPanel'; pan.setAttribute('aria-hidden', 'true');
   pan.innerHTML = '<header><b>✦ اسأل عن الكتاب</b><button type="button" data-a="set" title="الإعدادات">⚙</button><button type="button" data-a="clr" title="محادثة جديدة">↺</button><button type="button" data-a="x" title="إغلاق">✕</button></header>' +
     '<div class="aiset" hidden>' +
-      '<label>المزوّد <select name="prov"><option value="anthropic">Claude (Anthropic)</option><option value="openai">ChatGPT (OpenAI)</option></select></label>' +
+      '<label>المزوّد <select name="prov"><option value="anthropic">Claude (Anthropic)</option><option value="openai">ChatGPT (OpenAI)</option><option value="gemini">Gemini (Google) — مجاني</option></select></label>' +
+      '<div class="aihint"></div>' +
       '<label>مفتاح API <input name="key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…" dir="ltr"/></label>' +
       '<label>النموذج <input name="model" type="text" autocomplete="off" spellcheck="false" dir="ltr"/></label>' +
       '<div class="row"><button type="button" class="pb" data-a="save">حفظ</button><button type="button" class="pg" data-a="wipe">مسح المفتاح</button></div>' +
@@ -1169,7 +1172,8 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
   function add(cls, html){ const d = document.createElement('div'); d.className = 'm ' + cls; d.innerHTML = html; msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight; return d; }
   function readSel(){ try{ const s = reader.querySelector('iframe').contentWindow.getSelection().toString().replace(/\s+/g, ' ').trim(); if(s) sel = s.slice(0, 4000); }catch(_){} showSel(); }
   function showSel(){ selBox.hidden = !sel; if(sel) selBox.firstChild.textContent = 'النص المحدد: ' + sel.slice(0, 80) + (sel.length > 80 ? '…' : ''); }
-  function loadSet(){ const c = cfg(); fld('prov').value = c.provider; fld('key').value = c.keys[c.provider]; fld('model').value = c.models[c.provider]; }
+  function hint(){ set.querySelector('.aihint').innerHTML = HINT[fld('prov').value] || ''; }
+  function loadSet(){ const c = cfg(); fld('prov').value = c.provider; hint(); fld('key').value = c.keys[c.provider]; fld('model').value = c.models[c.provider]; }
   function reset(){ hist = []; msgs.innerHTML = ''; add('a', 'اسأل عن هذا الكتاب وسأجيب من نصّه مع ذكر أرقام الصفحات. يمكنك تحديد نص في الكتاب قبل فتح هذه النافذة ليكون موضوع السؤال.'); }
 
   function open(){
@@ -1183,7 +1187,7 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
   btn.addEventListener('click', () => pan.classList.contains('on') ? close() : open());
   window.__srAsk = {toggle: () => pan.classList.contains('on') ? close() : open()};
 
-  fld('prov').addEventListener('change', e => { const c = cfg(); fld('key').value = c.keys[e.target.value]; fld('model').value = c.models[e.target.value]; });
+  fld('prov').addEventListener('change', e => { hint(); const c = cfg(); fld('key').value = c.keys[e.target.value]; fld('model').value = c.models[e.target.value]; });
   pan.addEventListener('click', e => {
     const cite = e.target.closest('.cite');
     if(cite){ const v = cite.dataset.v, p = cite.dataset.p; try{ reader.querySelector('iframe').contentWindow.postMessage({t:'study-goto', p: (v ? v + '-' : '') + p}, '*'); }catch(_){} if(innerWidth <= 640) close(); return; }
@@ -1219,6 +1223,9 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
     if(c.provider === 'anthropic'){
       res = await fetch('https://api.anthropic.com/v1/messages', {method:'POST', signal, headers:{'content-type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true'},
         body: JSON.stringify({model:c.models.anthropic, max_tokens:2048, stream:true, system:[Object.assign({type:'text', text:system}, cache ? {cache_control:{type:'ephemeral'}} : {})], messages})});
+    }else if(c.provider === 'gemini'){
+      res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(c.models.gemini) + ':streamGenerateContent?alt=sse', {method:'POST', signal, headers:{'content-type':'application/json', 'x-goog-api-key':key},
+        body: JSON.stringify({systemInstruction:{parts:[{text:system}]}, contents: messages.map(m => ({role: m.role === 'assistant' ? 'model' : 'user', parts:[{text: typeof m.content === 'string' ? m.content : String(m.content)}]})), generationConfig:{maxOutputTokens:4096}})});
     }else{
       res = await fetch('https://api.openai.com/v1/chat/completions', {method:'POST', signal, headers:{'content-type':'application/json', 'authorization':'Bearer ' + key},
         body: JSON.stringify({model:c.models.openai, stream:true, max_completion_tokens:2048, messages:[{role:'system', content:system}].concat(messages)})});
@@ -1232,11 +1239,12 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
         if(!line.startsWith('data:')) continue; const d = line.slice(5).trim(); if(!d || d === '[DONE]') continue;
         let j; try{ j = JSON.parse(d); }catch(_){ continue; }
         if(c.provider === 'anthropic'){ if(j.type === 'content_block_delta' && j.delta && j.delta.text) onDelta(j.delta.text); else if(j.type === 'error') throw new Error(j.error && j.error.message || 'خطأ من المزوّد'); }
+        else if(c.provider === 'gemini'){ const ps = j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts || []; for(const x of ps) if(x.text && !x.thought) onDelta(x.text); }
         else { const t = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content; if(t) onDelta(t); }
       }
     }
   }
-  const errMsg = e => e.name === 'AbortError' ? 'أُوقف الطلب.' : !navigator.onLine ? 'لا يوجد اتصال بالإنترنت؛ هذه الميزة تحتاج اتصالًا.' : e.status === 401 || e.status === 403 ? 'المفتاح غير صالح أو لا يملك الصلاحية. راجعه من ⚙.' : e.status === 429 ? 'تجاوزتَ الحد المسموح أو نفد الرصيد لدى المزوّد.' : e.status === 404 ? 'اسم النموذج غير صحيح. عدّله من ⚙.' : e instanceof TypeError ? 'تعذّر الاتصال بالمزوّد (شبكة أو حجب).' : (e.message || 'حدث خطأ.');
+  const errMsg = e => e.name === 'AbortError' ? 'أُوقف الطلب.' : !navigator.onLine ? 'لا يوجد اتصال بالإنترنت؛ هذه الميزة تحتاج اتصالًا.' : e.status === 401 || e.status === 403 || (e.status === 400 && /api key/i.test(e.message || '')) ? 'المفتاح غير صالح أو لا يملك الصلاحية. راجعه من ⚙.' : e.status === 429 ? 'تجاوزتَ الحد المسموح أو نفد الرصيد لدى المزوّد.' : e.status === 404 ? 'اسم النموذج غير صحيح. عدّله من ⚙.' : e instanceof TypeError ? 'تعذّر الاتصال بالمزوّد (شبكة أو حجب).' : (e.message || 'حدث خطأ.');
 
   pan.querySelector('form').addEventListener('submit', async e => {
     e.preventDefault(); const q = ta.value.trim(); if(!q || ctrl) return;
