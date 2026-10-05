@@ -1140,10 +1140,10 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
 
 /* ---------- اسأل عن الكتاب (Claude / ChatGPT بمفتاح المستخدم) ---------- */
 (function(){
-  const DEF = {provider:'anthropic', keys:{anthropic:'', openai:'', gemini:''}, models:{anthropic:'claude-sonnet-5-5', openai:'gpt-4o', gemini:'gemini-flash-latest'}};
-  const cfg = () => { try{ const c = JSON.parse(ls.get('sr:ai') || 'null') || {}; return {provider: ['openai', 'gemini'].includes(c.provider) ? c.provider : 'anthropic', keys: Object.assign({}, DEF.keys, c.keys), models: Object.assign({}, DEF.models, c.models)}; }catch(e){ return JSON.parse(JSON.stringify(DEF)); } };
-  const PROV = {anthropic:'Claude', openai:'ChatGPT', gemini:'Gemini'};
-  const HINT = {gemini:'<b>Gemini مجاني:</b> افتح <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> وسجّل بحساب Google ثم «Create API key» وانسخه هنا. لا يحتاج بطاقة، وله حدٌّ يومي مجاني. قد تستعمل Google ما يُرسل في الطبقة المجانية لتحسين خدماتها، فلا ترسل نصًّا خاصًّا.', anthropic:'المفتاح من console.anthropic.com ← API Keys (يحتاج رصيدًا).', openai:'المفتاح من platform.openai.com ← API keys (يحتاج رصيدًا).'};
+  const DEF = {provider:'anthropic', keys:{anthropic:'', openai:'', gemini:'', openrouter:'', groq:''}, models:{anthropic:'claude-sonnet-5-5', openai:'gpt-4o', gemini:'gemini-flash-latest', openrouter:'openrouter/free', groq:'llama-3.3-70b-versatile'}};
+  const cfg = () => { try{ const c = JSON.parse(ls.get('sr:ai') || 'null') || {}; return {provider: ['openai', 'gemini', 'openrouter', 'groq'].includes(c.provider) ? c.provider : 'anthropic', keys: Object.assign({}, DEF.keys, c.keys), models: Object.assign({}, DEF.models, c.models)}; }catch(e){ return JSON.parse(JSON.stringify(DEF)); } };
+  const PROV = {anthropic:'Claude', openai:'ChatGPT', gemini:'Gemini', openrouter:'OpenRouter', groq:'Groq'};
+  const HINT = {openrouter:'<b>OpenRouter مجاني:</b> افتح <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a> وسجّل ثم «Create Key» وانسخه هنا. النموذج <code>openrouter/free</code> يختار لك نموذجًا مجانيًّا متاحًا تلقائيًّا. لا يحتاج بطاقة، وحدّه اليومي صغير. قد تُسجَّل الأسئلة في الطبقة المجانية، فلا ترسل نصًّا خاصًّا.', groq:'<b>Groq مجاني:</b> افتح <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a> وسجّل ثم «Create API Key» وانسخه هنا. سريع جدًّا ولا يحتاج بطاقة، وحدّه اليومي مجاني. النموذج الافتراضي <code>llama-3.3-70b-versatile</code>، فإن رُفض الاسم فاختر غيره من console.groq.com/docs/models.', gemini:'<b>Gemini مجاني:</b> افتح <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> وسجّل بحساب Google ثم «Create API key» وانسخه هنا. لا يحتاج بطاقة، وله حدٌّ يومي مجاني. قد تستعمل Google ما يُرسل في الطبقة المجانية لتحسين خدماتها، فلا ترسل نصًّا خاصًّا.', anthropic:'المفتاح من console.anthropic.com ← API Keys (يحتاج رصيدًا).', openai:'المفتاح من platform.openai.com ← API keys (يحتاج رصيدًا).'};
   const FULL = 90000, PART = 60000;
   let hist = [], bookId = null, ctrl = null, sel = '';
   const normCache = new Map();
@@ -1152,7 +1152,7 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
   const pan = document.createElement('aside'); pan.id = 'aiPanel'; pan.setAttribute('aria-hidden', 'true');
   pan.innerHTML = '<header><b>✦ اسأل عن الكتاب</b><button type="button" data-a="set" title="الإعدادات">⚙</button><button type="button" data-a="clr" title="محادثة جديدة">↺</button><button type="button" data-a="x" title="إغلاق">✕</button></header>' +
     '<div class="aiset" hidden>' +
-      '<label>المزوّد <select name="prov"><option value="anthropic">Claude (Anthropic)</option><option value="openai">ChatGPT (OpenAI)</option><option value="gemini">Gemini (Google) — مجاني</option></select></label>' +
+      '<label>المزوّد <select name="prov"><option value="anthropic">Claude (Anthropic)</option><option value="openai">ChatGPT (OpenAI)</option><option value="gemini">Gemini (Google) — مجاني</option><option value="openrouter">OpenRouter — نماذج مجانية</option><option value="groq">Groq — مجاني وسريع</option></select></label>' +
       '<div class="aihint"></div>' +
       '<label>مفتاح API <input name="key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…" dir="ltr"/></label>' +
       '<label>النموذج <input name="model" type="text" autocomplete="off" spellcheck="false" dir="ltr"/></label>' +
@@ -1241,8 +1241,9 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
         }catch(_){}
       }
     }else{
-      res = await fetch('https://api.openai.com/v1/chat/completions', {method:'POST', signal, headers:{'content-type':'application/json', 'authorization':'Bearer ' + key},
-        body: JSON.stringify({model:c.models.openai, stream:true, max_completion_tokens:2048, messages:[{role:'system', content:system}].concat(messages)})});
+      const OAI = {openai:'https://api.openai.com/v1/chat/completions', openrouter:'https://openrouter.ai/api/v1/chat/completions', groq:'https://api.groq.com/openai/v1/chat/completions'};
+      res = await fetch(OAI[c.provider], {method:'POST', signal, headers:{'content-type':'application/json', 'authorization':'Bearer ' + key},
+        body: JSON.stringify(Object.assign({model:c.models[c.provider], stream:true, messages:[{role:'system', content:system}].concat(messages)}, c.provider === 'openai' ? {max_completion_tokens:2048} : {max_tokens:2048}))});
     }
     if(!res.ok){ let m = ''; try{ const j = await res.json(); m = j.error && (j.error.message || j.error.type) || ''; }catch(_){} const er = new Error(m || ('HTTP ' + res.status)); er.status = res.status; throw er; }
     const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
