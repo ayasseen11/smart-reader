@@ -1101,7 +1101,7 @@ async function bookHTML(b){
   return b.html;
 }
 const reader = $('#reader');
-let CUR = null;
+let CUR = null, readerGen = 0;
 /* روابط عميقة في العنوان — الصيغة نفسها للقراءة والكتابة:
    #book=<id>
    #book=<id>&p=<page>
@@ -1145,7 +1145,10 @@ function placeBookHash(id, page, keepHist){
 }
 function writeBookHash(id, page){
   const cur = parseBookHash(location.hash);
-  if(cur && cur.id === id && sameHashPage(cur, page)) return;
+  const st = history.state;
+  const same = cur && cur.id === id && sameHashPage(cur, page);
+  const stateOk = !!(st && st.book === id && sameHashPage(st, page));
+  if(same && stateOk) return;
   history.replaceState(hashState(id, page), '', bookHash(id, page));
 }
 function followReaderPage(page){
@@ -1185,6 +1188,7 @@ function jumpReader(goto){
 }
 async function openBook(id, goto, fromPop){
   const b = BOOKS.find(x => x.id === id) || await get(id); if(!b) return toast('لم يُعثر على الكتاب.');
+  readerGen++;
   const page = gotoPage(goto);
   if(b.type === 'pdf') return openPdf(b, page, fromPop);
   busy(true);
@@ -1212,10 +1216,11 @@ async function openBook(id, goto, fromPop){
 function closeBook(fromPop){
   if(!CUR) return;
   hashLock = null;
+  const gen = ++readerGen;
   try{ const w = reader.querySelector('iframe').contentWindow; w.dispatchEvent(new Event('pagehide')); }catch(_){}
   reader.classList.remove('on'); reader.setAttribute('aria-hidden', 'true'); document.body.classList.remove('reading');
   if(reader._cleanup){ try{ reader._cleanup(); }catch(_){} reader._cleanup = null; }
-  setTimeout(() => { reader.innerHTML = ''; reader.dataset.kind = ''; }, 50);
+  setTimeout(() => { if(gen !== readerGen) return; reader.innerHTML = ''; reader.dataset.kind = ''; reader._go = null; }, 50);
   CUR = null; ls.del('sr:last'); document.title = 'القارئ الذكي — Smart Reader';
   if(!fromPop) history.pushState({}, '', location.pathname + location.search);
   load();
