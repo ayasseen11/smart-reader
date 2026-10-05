@@ -1227,6 +1227,7 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
       const gcall = () => fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(c.models.gemini) + ':streamGenerateContent?alt=sse', {method:'POST', signal, headers:{'content-type':'application/json', 'x-goog-api-key':key},
         body: JSON.stringify({systemInstruction:{parts:[{text:system}]}, contents: messages.map(m => ({role: m.role === 'assistant' ? 'model' : 'user', parts:[{text: typeof m.content === 'string' ? m.content : String(m.content)}]})), generationConfig:{maxOutputTokens:4096}})});
       res = await gcall();
+      for(let t = 0; (res.status === 503 || res.status === 500) && t < 3; t++){ await new Promise(r => setTimeout(r, 2500 * (t + 1))); if(signal && signal.aborted) break; res = await gcall(); }
       if(res.status === 404){
         /* الاسم قديم أو غير متاح: اختر أحدث نموذج Flash يدعم التوليد من قائمة حسابك ثم أعد المحاولة */
         try{
@@ -1257,7 +1258,7 @@ addEventListener('keydown', e => { if(e.altKey && e.code === 'KeyL' && CUR){ e.p
       }
     }
   }
-  const errMsg = e => e.name === 'AbortError' ? 'أُوقف الطلب.' : !navigator.onLine ? 'لا يوجد اتصال بالإنترنت؛ هذه الميزة تحتاج اتصالًا.' : e.status === 401 || e.status === 403 || (e.status === 400 && /api key/i.test(e.message || '')) ? 'المفتاح غير صالح أو لا يملك الصلاحية. راجعه من ⚙.' : e.status === 429 ? 'تجاوزتَ الحد المسموح أو نفد الرصيد لدى المزوّد.' : e.status === 404 ? 'اسم النموذج غير صحيح. عدّله من ⚙.' : e instanceof TypeError ? 'تعذّر الاتصال بالمزوّد (شبكة أو حجب).' : (e.message || 'حدث خطأ.');
+  const errMsg = e => e.name === 'AbortError' ? 'أُوقف الطلب.' : !navigator.onLine ? 'لا يوجد اتصال بالإنترنت؛ هذه الميزة تحتاج اتصالًا.' : e.status === 401 || e.status === 403 || (e.status === 400 && /api key/i.test(e.message || '')) ? 'المفتاح غير صالح أو لا يملك الصلاحية. راجعه من ⚙.' : e.status === 503 ? 'خوادم المزوّد مزدحمة الآن. أعد المحاولة بعد قليل، أو غيّر النموذج من ⚙ (مثل gemini-flash-lite-latest).' : e.status === 429 ? 'تجاوزتَ الحد المسموح أو نفد الرصيد لدى المزوّد.' : e.status === 404 ? 'اسم النموذج غير صحيح. عدّله من ⚙.' : e instanceof TypeError ? 'تعذّر الاتصال بالمزوّد (شبكة أو حجب).' : (e.message || 'حدث خطأ.');
 
   pan.querySelector('form').addEventListener('submit', async e => {
     e.preventDefault(); const q = ta.value.trim(); if(!q || ctrl) return;
